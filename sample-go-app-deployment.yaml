@@ -1,0 +1,21 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-go-app
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sample-go-app
+  template:
+    metadata:
+      labels:
+        app: sample-go-app
+    spec:
+      containers:
+        - name: sample-go-app
+          image: ctlptl-registry:5000/sample-go-app:latest
+          ports:
+            - containerPort: 8080

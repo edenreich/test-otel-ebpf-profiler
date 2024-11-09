@@ -1,0 +1,24 @@
+{
+  "name": "Dev Container",
+  "dockerFile": "Dockerfile",
+  "context": "..",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:latest": {}
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.shell.linux": "/bin/zsh",
+        "editor.formatOnSave": true
+      },
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-azuretools.vscode-docker",
+        "eamodio.gitlens",
+        "golang.go"
+      ]
+    }
+  },
+  "postCreateCommand": "git config --global --add safe.directory /workspaces/test-otel-ebpf-profiling"
+}

@@ -1,0 +1,95 @@
+version: "3"
+
+tasks:
+  create-cluster:
+    desc: "Create a k3d cluster"
+    cmds:
+      - ctlptl apply -f cluster.yaml
+      - helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+      - helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+      - helm repo update
+      - |
+        helm upgrade --install nginx-ingress ingress-nginx/ingress-nginx --namespace kube-system
+      - |
+        helm upgrade --install my-opentelemetry-operator open-telemetry/opentelemetry-operator \
+          --set "manager.collectorImage.repository=otel/opentelemetry-collector-k8s" \
+          --set admissionWebhooks.certManager.enabled=false \
+          --set admissionWebhooks.autoGenerateCert.enabled=true \
+          --namespace kube-system
+      - kubectl -n kube-system wait --for=condition=available deployment/my-opentelemetry-operator --timeout=300s
+
+  deploy-otel-collector:
+    desc: "Deploy OpenTelemetry Collector"
+    cmds:
+      - kubectl create namespace observability || true
+      - kubectl apply -f otel-collector-deployment.yaml
+
+  build-ebpf-profiler:
+    desc: "Build the OpenTelemetry eBPF Profiler"
+    cmds:
+      - rm -rf opentelemetry-ebpf-profiler || true
+      - git clone https://github.com/open-telemetry/opentelemetry-ebpf-profiler
+      - cd opentelemetry-ebpf-profiler && make docker-image && make agent # It's strange, currently the official repository only containing a Dockerfile for development - it's not officially released yet I guess
+      - docker build -t localhost:5005/opentelemetry-ebpf-profiler:latest -f Dockerfile.profiler . # I've created a Dockerfile.profiler to build the agent by copying the artifact as a statically linked binary into this container image so I can deploy it
+      - docker rmi profiling-agent:latest # After using the helper image, I can remove it from the system
+      - docker push localhost:5005/opentelemetry-ebpf-profiler:latest
+      - rm -rf opentelemetry-ebpf-profiler
+
+  deploy-ebpf-profiler:
+    desc: "Deploy OpenTelemetry eBPF Profiler DaemonSet"
+    cmds:
+      - kubectl apply -f otel-ebpf-profiler-daemonset.yaml
+
+  build-go-app:
+    desc: "Build and push the Go application"
+    cmds:
+      - docker build -t localhost:5005/sample-go-app:latest -f go-app/Dockerfile go-app
+      - docker push localhost:5005/sample-go-app:latest
+
+  deploy-go-app:
+    desc: "Deploy the Go application in Kubernetes"
+    cmds:
+      - kubectl apply -f sample-go-app-deployment.yaml
+
+  build-node-app:
+    desc: "Build and push the Node.js application"
+    cmds:
+      - docker build -t localhost:5005/sample-node-app:latest -f node-app/Dockerfile node-app
+      - docker push localhost:5005/sample-node-app:latest
+
+  deploy-node-app:
+    desc: "Deploy the Node.js application in Kubernetes"
+    cmds:
+      - kubectl apply -f sample-node-app-deployment.yaml
+
+  generate-traffic:
+    desc: "Generate traffic to the Node.js application"
+    cmds:
+      - for i in {1..10}; do curl http://localhost; done
+    requires:
+      vars:
+        - NODE_APP_IP
+
+  logs-otel-collector:
+    desc: "View OpenTelemetry Collector logs"
+    cmds:
+      - kubectl logs deployment/otel-collector -n observability
+
+  clean:
+    desc: "Clean up the cluster"
+    cmds:
+      - ctlptl delete -f cluster.yaml
+
+  all:
+    desc: "Run all tasks"
+    cmds:
+      - task: create-cluster
+      - task: deploy-otel-collector
+      - task: build-ebpf-profiler # Building it from source - it's not released yet.
+      - task: deploy-ebpf-profiler
+      - task: build-go-app
+      - task: deploy-go-app
+      # - task: build-node-app
+      # - task: deploy-node-app
+      # - task: generate-traffic
+      # - task: logs-otel-collector
